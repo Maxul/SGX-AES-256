@@ -1,0 +1,21 @@
+/*
+ * Enclave.edl - Top EDL file.
+ *
+ * Copyright (C) 2018 - Maxul
+ *
+ */
+
+enclave {
+
+  from "sgx_tstdc.edl" import *;
+  from "sgx_tae_service.edl" import *;
+
+  trusted {
+    public int test_main(void);
+  };
+
+  untrusted {
+    void ocall_print_string([ in, string ] const char *str);
+  };
+};
+
