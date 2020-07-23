@@ -104,8 +104,7 @@ Crypto_Library_Name := sgx_tcrypto
 Enclave_Cpp_Files := $(wildcard Enclave/*.cpp) $(wildcard Enclave/Libsodium/*.cpp)
 Enclave_Include_Paths := -IEnclave -I$(SGX_SDK)/include -I$(SGX_SDK)/include/libcxx -I$(SGX_SDK)/include/tlibc \
 	-IEnclave/Libsodium/include -IEnclave/Libsodium/include/sodium \
-	-I/usr/lib/gcc/x86_64-linux-gnu/5/include \
-	-I/usr/lib/gcc/x86_64-redhat-linux/4.8.2/include
+	-I/usr/lib/gcc/x86_64-linux-gnu/5/include
 
 Enclave_C_Flags := -nostdinc -fvisibility=hidden -fpie -fstack-protector $(Enclave_Include_Paths)
 Enclave_Cpp_Flags := $(Enclave_C_Flags) -nostdinc++ -maes -msse4
