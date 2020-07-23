@@ -10,7 +10,7 @@
 #include <string.h>
 
 #ifndef __wasm__
-# include <signal.h>
+// # include <signal.h>
 #endif
 
 #ifdef HAVE_SYS_MMAN_H

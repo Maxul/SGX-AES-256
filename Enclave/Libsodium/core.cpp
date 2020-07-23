@@ -39,12 +39,14 @@ sodium_init(void)
     _sodium_runtime_get_cpu_features();
     randombytes_stir();
     _sodium_alloc_init();
+#if 0
     _crypto_pwhash_argon2_pick_best_implementation();
     _crypto_generichash_blake2b_pick_best_implementation();
     _crypto_onetimeauth_poly1305_pick_best_implementation();
     _crypto_scalarmult_curve25519_pick_best_implementation();
     _crypto_stream_chacha20_pick_best_implementation();
     _crypto_stream_salsa20_pick_best_implementation();
+#endif
     initialized = 1;
     if (sodium_crit_leave() != 0) {
         return -1; /* LCOV_EXCL_LINE */
