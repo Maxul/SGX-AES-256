@@ -12,6 +12,7 @@
 #include <assert.h>
 
 extern void printf(const char *fmt, ...);
+static unsigned char *guard_page;
 
 static struct {
     const char *key_hex;
