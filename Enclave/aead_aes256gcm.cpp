@@ -13,7 +13,6 @@
 
 extern void printf(const char *fmt, ...);
 
-
 static struct {
     const char *key_hex;
     const char *nonce_hex;
@@ -3191,7 +3190,7 @@ tv(void)
             printf("Message length should have been set to zero after a failure\n");
         }
         if (crypto_aead_aes256gcm_decrypt(decrypted, &found_message_len,
-                                          NULL, NULL,
+                                          NULL, guard_page,
                                           randombytes_uniform(crypto_aead_aes256gcm_ABYTES),
                                           ad, ad_len, nonce, key) != -1) {
             printf("Verification of test vector #%u with a truncated tag failed\n",

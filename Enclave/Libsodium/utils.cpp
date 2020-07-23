@@ -4,11 +4,14 @@
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
-//#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef __wasm__
+# include <signal.h>
+#endif
 
 #ifdef HAVE_SYS_MMAN_H
 # include <sys/mman.h>
@@ -59,7 +62,11 @@ void *alloca (size_t);
 #define GARBAGE_VALUE 0xdb
 
 #ifndef MAP_NOCORE
-# define MAP_NOCORE 0
+# ifdef MAP_CONCEAL
+#  define MAP_NOCORE MAP_CONCEAL
+# else
+#  define MAP_NOCORE 0
+# endif
 #endif
 #if !defined(MAP_ANON) && defined(MAP_ANONYMOUS)
 # define MAP_ANON MAP_ANONYMOUS
@@ -81,7 +88,15 @@ void *alloca (size_t);
 # define MADV_DONTDUMP MADV_NOCORE
 #endif
 
-static size_t        page_size;
+#ifndef DEFAULT_PAGE_SIZE
+# ifdef PAGE_SIZE
+#  define DEFAULT_PAGE_SIZE PAGE_SIZE
+# else
+#  define DEFAULT_PAGE_SIZE 0x10000
+# endif
+#endif
+
+static size_t        page_size = DEFAULT_PAGE_SIZE;
 static unsigned char canary[CANARY_SIZE];
 
 /* LCOV_EXCL_START */
@@ -100,7 +115,7 @@ _sodium_dummy_symbol_to_prevent_memzero_lto(void *const  pnt,
 /* LCOV_EXCL_STOP */
 
 void
-sodium_memzero(void *const pnt, const size_t len)
+sodium_memzero(void * const pnt, const size_t len)
 {
 #ifdef _WIN32
     SecureZeroMemory(pnt, len);
@@ -110,9 +125,13 @@ sodium_memzero(void *const pnt, const size_t len)
     }
 #elif defined(HAVE_EXPLICIT_BZERO)
     explicit_bzero(pnt, len);
+#elif defined(HAVE_EXPLICIT_MEMSET)
+    explicit_memset(pnt, 0, len);
 #elif HAVE_WEAK_SYMBOLS
-    memset(pnt, 0, len);
-    _sodium_dummy_symbol_to_prevent_memzero_lto(pnt, len);
+    if (len > 0U) {
+        memset(pnt, 0, len);
+        _sodium_dummy_symbol_to_prevent_memzero_lto(pnt, len);
+    }
 # ifdef HAVE_INLINE_ASM
     __asm__ __volatile__ ("" : : "r"(pnt) : "memory");
 # endif
@@ -287,7 +306,7 @@ sodium_increment(unsigned char *n, const size_t nlen)
 void
 sodium_add(unsigned char *a, const unsigned char *b, const size_t len)
 {
-    size_t        i = 0U;
+    size_t        i;
     uint_fast16_t c = 0U;
 
 #ifdef HAVE_AMD64_ASM
@@ -326,10 +345,53 @@ sodium_add(unsigned char *a, const unsigned char *b, const size_t len)
         return;
     }
 #endif
-    for (; i < len; i++) {
+    for (i = 0U; i < len; i++) {
         c += (uint_fast16_t) a[i] + (uint_fast16_t) b[i];
         a[i] = (unsigned char) c;
         c >>= 8;
+    }
+}
+
+void
+sodium_sub(unsigned char *a, const unsigned char *b, const size_t len)
+{
+    uint_fast16_t c = 0U;
+    size_t        i;
+
+#ifdef HAVE_AMD64_ASM
+    uint64_t t64_1, t64_2, t64_3, t64_4;
+    uint64_t t64_5, t64_6, t64_7, t64_8;
+    uint32_t t32;
+
+    if (len == 64U) {
+        __asm__ __volatile__(
+            "movq   (%[in]), %[t64_1] \n"
+            "movq  8(%[in]), %[t64_2] \n"
+            "movq 16(%[in]), %[t64_3] \n"
+            "movq 24(%[in]), %[t64_4] \n"
+            "movq 32(%[in]), %[t64_5] \n"
+            "movq 40(%[in]), %[t64_6] \n"
+            "movq 48(%[in]), %[t64_7] \n"
+            "movq 56(%[in]), %[t64_8] \n"
+            "subq %[t64_1],   (%[out]) \n"
+            "sbbq %[t64_2],  8(%[out]) \n"
+            "sbbq %[t64_3], 16(%[out]) \n"
+            "sbbq %[t64_4], 24(%[out]) \n"
+            "sbbq %[t64_5], 32(%[out]) \n"
+            "sbbq %[t64_6], 40(%[out]) \n"
+            "sbbq %[t64_7], 48(%[out]) \n"
+            "sbbq %[t64_8], 56(%[out]) \n"
+            : [t64_1] "=&r"(t64_1), [t64_2] "=&r"(t64_2), [t64_3] "=&r"(t64_3), [t64_4] "=&r"(t64_4),
+              [t64_5] "=&r"(t64_5), [t64_6] "=&r"(t64_6), [t64_7] "=&r"(t64_7), [t64_8] "=&r"(t64_8)
+            : [in] "S"(b), [out] "D"(a)
+            : "memory", "flags", "cc");
+        return;
+    }
+#endif
+    for (i = 0U; i < len; i++) {
+        c = (uint_fast16_t) a[i] - (uint_fast16_t) b[i] - c;
+        a[i] = (unsigned char) c;
+        c = (c >> 8) & 1U;
     }
 }
 
@@ -346,6 +408,8 @@ _sodium_alloc_init(void)
     SYSTEM_INFO si;
     GetSystemInfo(&si);
     page_size = (size_t) si.dwPageSize;
+# else
+#  warning Unknown page size
 # endif
     if (page_size < CANARY_SIZE || page_size < sizeof(size_t)) {
         sodium_misuse(); /* LCOV_EXCL_LINE */
@@ -436,10 +500,12 @@ _mprotect_readwrite(void *ptr, size_t size)
 __attribute__((noreturn)) static void
 _out_of_bounds(void)
 {
-# ifdef SIGSEGV
+# ifndef __wasm__
+#  ifdef SIGSEGV
     raise(SIGSEGV);
-# elif defined(SIGKILL)
+#  elif defined(SIGKILL)
     raise(SIGKILL);
+#  endif
 # endif
     abort(); /* not something we want any higher-level API to catch */
 } /* LCOV_EXCL_LINE */
@@ -697,7 +763,7 @@ sodium_pad(size_t *padded_buflen_p, unsigned char *buf,
     for (i = 0; i < blocksize; i++) {
         barrier_mask = (unsigned char) (((i ^ xpadlen) - 1U)
            >> ((sizeof(size_t) - 1) * CHAR_BIT));
-        tail[-i] = (tail[-i] & mask) | (0x80 & barrier_mask);
+        *(tail - i) = ((*(tail - i)) & mask) | (0x80 & barrier_mask);
         mask |= barrier_mask;
     }
     return 0;
@@ -721,7 +787,7 @@ sodium_unpad(size_t *unpadded_buflen_p, const unsigned char *buf,
     tail = &buf[padded_buflen - 1U];
 
     for (i = 0U; i < blocksize; i++) {
-        c = tail[-i];
+        c = *(tail - i);
         is_barrier =
             (( (acc - 1U) & (pad_len - 1U) & ((c ^ 0x80) - 1U) ) >> 8) & 1U;
         acc |= c;

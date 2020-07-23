@@ -1,3 +1,10 @@
+/*
+ * App.cpp
+ *
+ * Copyright (C) 2020 - Maxul Lee
+ *
+ */
+
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -62,4 +69,3 @@ void
 randombytes_stir(void)
 {
 }
-
